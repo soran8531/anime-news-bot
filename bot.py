@@ -32,6 +32,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 # اگه خالی بگذاری، این قابلیت غیرفعال می‌شه و فقط ارسال به تلگرام انجام می‌شه.
 WEBHOOK_LOG_URL = os.environ.get("WEBHOOK_LOG_URL", "")  # مثلاً https://sisisi.pythonanywhere.com/log_news
 LOG_SECRET = os.environ.get("LOG_SECRET", "")
+print(f"DEBUG: WEBHOOK_LOG_URL={WEBHOOK_LOG_URL!r}, LOG_SECRET={'set' if LOG_SECRET else 'EMPTY'}")
 
 translator = GoogleTranslator(source="en", target="fa")
 
@@ -85,7 +86,7 @@ def log_to_history(title: str, summary: str, link: str, source: str):
     if not WEBHOOK_LOG_URL or not LOG_SECRET:
         return
     try:
-        requests.post(
+        resp = requests.post(
             WEBHOOK_LOG_URL,
             json={
                 "secret": LOG_SECRET,
@@ -95,6 +96,7 @@ def log_to_history(title: str, summary: str, link: str, source: str):
             },
             timeout=10,
         )
+        print(f"DEBUG log_to_history response: {resp.status_code} - {resp.text[:200]}")
     except Exception as e:
         print(f"⚠️ نشد به ربات تعاملی گزارش بدم: {e}")
 
