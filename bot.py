@@ -114,6 +114,7 @@ def log_to_history(title: str, summary: str, link: str, source: str, category: s
                         "link": link,
                         "source": source,
                         "category": category,
+                        "sent_at": time.time(),
                     }
                 ],
             },
