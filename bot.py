@@ -1,7 +1,8 @@
 """
-ربات اخبار انیمه
-هر بار اجرا می‌شه: فیدهای خبری انیمه رو می‌خونه، خبرهای جدید (که قبلاً فرستاده نشدن) رو
-به فارسی ترجمه می‌کنه و توی تلگرام می‌فرسته.
+ربات اخبار انیمه / مانگا
+هر بار اجرا می‌شه: فیدهای خبری رو می‌خونه، خبرهای جدید (که قبلاً فرستاده نشدن) رو
+از روی متنشون دسته‌بندی می‌کنه (انیمه / مانگا)، به فارسی ترجمه می‌کنه
+و توی تلگرام می‌فرسته.
 """
 
 import json
@@ -20,6 +21,8 @@ FEEDS = {
     "Anime News Network": "https://www.animenewsnetwork.com/all/rss.xml",
     "Anime Corner": "https://animecorner.me/feed/",
     "Crunchyroll News": "https://www.crunchyroll.com/newsrss",
+    # منبع اختصاصی اخبار مانگا (دسته‌ی Manga سایت Anime Corner)
+    "Anime Corner - Manga News": "https://animecorner.me/category/manga/feed/",
 }
 
 STATE_FILE = Path(__file__).parent / "sent_ids.json"
@@ -28,16 +31,28 @@ MAX_ITEMS_PER_FEED = 8  # حداکثر تعداد خبر از هر منبع در
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-# آدرس ربات تعاملی (PythonAnywhere) برای ثبت تاریخچه‌ی خبرها.
-# اگه خالی بگذاری، این قابلیت غیرفعال می‌شه و فقط ارسال به تلگرام انجام می‌شه.
-WEBHOOK_LOG_URL = os.environ.get("WEBHOOK_LOG_URL", "")  # مثلاً https://sisisi.pythonanywhere.com/log_news
-LOG_SECRET = os.environ.get("LOG_SECRET", "")
-print(f"DEBUG: WEBHOOK_LOG_URL={WEBHOOK_LOG_URL!r}, LOG_SECRET={'set' if LOG_SECRET else 'EMPTY'}")
-
 translator = GoogleTranslator(source="en", target="fa")
+
+# برچسب و ایموجی هر دسته
+CATEGORY_META = {
+    "anime": {"emoji": "🎬", "label": "انیمه"},
+    "manga": {"emoji": "📖", "label": "مانگا"},
+}
 
 
 # ---------- توابع کمکی ----------
+
+def detect_category(text: str) -> str:
+    """
+    تشخیص دسته‌ی خبر از روی متنش (عنوان + خلاصه).
+    اگه کلمه‌ی 'manga' توش باشه -> مانگا
+    وگرنه -> انیمه
+    """
+    t = (text or "").lower()
+    if "manga" in t:
+        return "manga"
+    return "anime"
+
 
 def load_sent_ids() -> set:
     if STATE_FILE.exists():
@@ -80,27 +95,6 @@ def send_telegram_message(text: str):
     return resp.ok
 
 
-def log_to_history(title: str, summary: str, link: str, source: str):
-    """این خبر رو به ربات تعاملی (PythonAnywhere) هم گزارش می‌ده تا توی
-    دکمه‌ی «آخرین اخبار» قابل مشاهده باشه. اگه تنظیم نشده باشه، بی‌صدا رد می‌شه."""
-    if not WEBHOOK_LOG_URL or not LOG_SECRET:
-        return
-    try:
-        resp = requests.post(
-            WEBHOOK_LOG_URL,
-            json={
-                "secret": LOG_SECRET,
-                "items": [
-                    {"title": title, "summary": summary, "link": link, "source": source}
-                ],
-            },
-            timeout=10,
-        )
-        print(f"DEBUG log_to_history response: {resp.status_code} - {resp.text[:200]}")
-    except Exception as e:
-        print(f"⚠️ نشد به ربات تعاملی گزارش بدم: {e}")
-
-
 def clean_html(raw: str) -> str:
     """حذف تگ‌های ساده HTML که بعضی فیدها توی خلاصه‌شون دارن."""
     import re
@@ -140,12 +134,16 @@ def main():
             summary_en = clean_html(entry.get("summary", ""))
             link = entry.get("link", "")
 
+            category = detect_category(f"{title_en} {summary_en}")
+            meta = CATEGORY_META[category]
+
             title_fa = translate_safe(title_en)
             summary_fa = translate_safe(summary_en)
 
             message = (
-                f"🎬 <b>{title_fa}</b>\n\n"
+                f"{meta['emoji']} <b>{title_fa}</b>\n\n"
                 f"{summary_fa}\n\n"
+                f"🏷 دسته: {meta['label']}\n"
                 f"📰 منبع: {source_name}\n"
                 f"🔗 {link}"
             )
@@ -153,8 +151,7 @@ def main():
             if send_telegram_message(message):
                 new_sent_ids.add(entry_id)
                 total_sent += 1
-                print(f"✅ ارسال شد: {title_en[:60]}")
-                log_to_history(title_fa, summary_fa, link, source_name)
+                print(f"✅ ارسال شد [{meta['label']}]: {title_en[:60]}")
                 time.sleep(1.5)  # برای رعایت محدودیت نرخ تلگرام و گوگل ترنسلیت
 
     save_sent_ids(new_sent_ids)
