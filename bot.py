@@ -143,8 +143,38 @@ def clean_html(raw: str) -> str:
     return text.strip()
 
 
+def fetch_og_image(url: str) -> str:
+    """اگه فید خودش تصویر نداشت، مستقیم از صفحه‌ی مقاله og:image رو می‌گیریم."""
+    import re
+    if not url:
+        return ""
+    try:
+        resp = requests.get(
+            url,
+            timeout=8,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; AnimeNewsBot/1.0; +https://t.me/)"},
+        )
+        if resp.ok:
+            html = resp.text
+            match = re.search(
+                r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+                html, re.IGNORECASE,
+            )
+            if not match:
+                match = re.search(
+                    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+                    html, re.IGNORECASE,
+                )
+            if match:
+                return match.group(1)
+    except Exception as e:
+        print(f"⚠️ نشد og:image رو از {url} بگیریم: {e}")
+    return ""
+
+
 def extract_image(entry) -> str:
-    """تلاش می‌کنه از فرمت‌های مختلف فید، آدرس تصویر خبر رو پیدا کنه."""
+    """تلاش می‌کنه از فرمت‌های مختلف فید، آدرس تصویر خبر رو پیدا کنه.
+    اگه هیچ‌کدوم جواب نداد، از خودِ صفحه‌ی مقاله (og:image) می‌گیره."""
     import re
 
     # ۱. تگ media:thumbnail یا media:content (رایج‌ترین حالت)
@@ -170,7 +200,8 @@ def extract_image(entry) -> str:
     if match:
         return match.group(1)
 
-    return ""
+    # ۴. آخرین راه: مستقیم از خودِ صفحه‌ی مقاله og:image رو بگیر
+    return fetch_og_image(entry.get("link", ""))
 
 
 # ---------- منطق اصلی ----------
