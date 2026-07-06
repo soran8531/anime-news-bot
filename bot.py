@@ -79,8 +79,23 @@ def send_telegram_message(text: str):
     return resp.ok
 
 
+def send_telegram_photo(image_url: str, caption: str):
+    """پیام رو به‌صورت عکس با کپشن می‌فرسته. کپشن تلگرام محدود به ۱۰۲۴ کاراکتره."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "photo": image_url,
+        "caption": caption[:1024],
+        "parse_mode": "HTML",
+    }
+    resp = requests.post(url, data=payload, timeout=20)
+    if not resp.ok:
+        print(f"⚠️ خطا در ارسال عکس: {resp.status_code} - {resp.text}")
+    return resp.ok
+
+
 def log_to_history(title_en: str, summary_en: str, title_fa: str, summary_fa: str,
-                    link: str, source: str, category: str):
+                    link: str, source: str, category: str, image_url: str = ""):
     """این خبر رو به ربات تعاملی (PythonAnywhere) هم گزارش می‌ده تا توی
     دکمه‌ها و مینی‌اپ قابل مشاهده باشه. اگه تنظیم نشده باشه، بی‌صدا رد می‌شه."""
     if not WEBHOOK_LOG_URL or not LOG_SECRET:
@@ -99,6 +114,7 @@ def log_to_history(title_en: str, summary_en: str, title_fa: str, summary_fa: st
                         "link": link,
                         "source": source,
                         "category": category,
+                        "image_url": image_url,
                     }
                 ],
             },
@@ -125,6 +141,36 @@ def clean_html(raw: str) -> str:
     import re
     text = re.sub("<[^<]+?>", "", raw or "")
     return text.strip()
+
+
+def extract_image(entry) -> str:
+    """تلاش می‌کنه از فرمت‌های مختلف فید، آدرس تصویر خبر رو پیدا کنه."""
+    import re
+
+    # ۱. تگ media:thumbnail یا media:content (رایج‌ترین حالت)
+    if entry.get("media_thumbnail"):
+        return entry["media_thumbnail"][0].get("url", "")
+    if entry.get("media_content"):
+        for media in entry["media_content"]:
+            if media.get("url"):
+                return media["url"]
+
+    # ۲. فایل پیوست‌شده (enclosure) از نوع تصویر
+    for enc in entry.get("enclosures", []) or []:
+        url = enc.get("href") or enc.get("url", "")
+        if url and (enc.get("type", "").startswith("image") or
+                    url.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))):
+            return url
+
+    # ۳. جستجوی تگ <img> داخل خلاصه/محتوای HTML خبر
+    raw_html = entry.get("summary", "") or ""
+    if entry.get("content"):
+        raw_html += " " + entry["content"][0].get("value", "")
+    match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', raw_html)
+    if match:
+        return match.group(1)
+
+    return ""
 
 
 # ---------- منطق اصلی ----------
@@ -158,6 +204,7 @@ def main():
             title_en = entry.get("title", "").strip()
             summary_en = clean_html(entry.get("summary", ""))
             link = entry.get("link", "")
+            image_url = extract_image(entry)
             category = detect_category(title_en, summary_en)
             category_emoji = {"anime": "🎬", "manga": "📖", "manhwa": "🇰🇷"}[category]
             category_label = {"anime": "انیمه", "manga": "مانگا", "manhwa": "مانهوا"}[category]
@@ -173,11 +220,19 @@ def main():
                 f"🔗 {link}"
             )
 
-            if send_telegram_message(message):
+            if image_url:
+                sent_ok = send_telegram_photo(image_url, message)
+                if not sent_ok:
+                    # اگه عکس شکست خورد (مثلاً لینک خراب بود)، به‌صورت متنی بفرست
+                    sent_ok = send_telegram_message(message)
+            else:
+                sent_ok = send_telegram_message(message)
+
+            if sent_ok:
                 new_sent_ids.add(entry_id)
                 total_sent += 1
                 print(f"✅ ارسال شد: {title_en[:60]}")
-                log_to_history(title_en, summary_en, title_fa, summary_fa, link, source_name, category)
+                log_to_history(title_en, summary_en, title_fa, summary_fa, link, source_name, category, image_url)
                 time.sleep(1.5)  # برای رعایت محدودیت نرخ تلگرام و گوگل ترنسلیت
 
     save_sent_ids(new_sent_ids)
