@@ -7,7 +7,7 @@ on:
   workflow_dispatch: {}   # امکان اجرای دستی از تب Actions برای تست
 
 permissions:
-  contents: write   # اجازه لازم برای کامیت کردن فایل sent_ids.json
+  contents: write   # اجازه لازم برای کامیت کردن sent_ids.json و بک‌آپ history.json
 
 jobs:
   send-news:
@@ -31,11 +31,25 @@ jobs:
           WEBHOOK_LOG_URL: ${{ secrets.WEBHOOK_LOG_URL }}
           LOG_SECRET: ${{ secrets.LOG_SECRET }}
         run: python bot.py
-        
-      - name: Commit updated state file
+
+      - name: Backup history.json from PythonAnywhere
+        # اگه فایل history.json روی PythonAnywhere هر دلیلی پاک/خراب بشه،
+        # همیشه یه نسخه‌ی پشتیبان تازه توی خودِ ریپو داریم.
+        # آدرس پایه رو از همون Secret موجود (WEBHOOK_LOG_URL) می‌سازیم،
+        # پس نیازی به Secret جدید نیست.
+        env:
+          WEBHOOK_LOG_URL: ${{ secrets.WEBHOOK_LOG_URL }}
+        run: |
+          mkdir -p backups
+          BASE_URL="${WEBHOOK_LOG_URL%/log_news}"
+          curl -fsSL "${BASE_URL}/api/history?limit=1000" \
+            -o backups/history.json \
+            || echo "⚠️ نشد از PythonAnywhere بک‌آپ بگیریم (احتمالاً موقتیه، اجرای بعدی دوباره امتحان می‌شه)"
+
+      - name: Commit updated state + backup files
         run: |
           git config user.name "anime-news-bot"
           git config user.email "actions@github.com"
-          git add sent_ids.json
-          git diff --quiet && git diff --staged --quiet || git commit -m "update sent news log"
+          git add sent_ids.json backups/history.json
+          git diff --quiet && git diff --staged --quiet || git commit -m "update sent news log + history backup"
           git push
