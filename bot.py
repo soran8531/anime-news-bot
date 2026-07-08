@@ -28,6 +28,12 @@ MAX_ITEMS_PER_FEED = 8  # حداکثر تعداد خبر از هر منبع در
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
+# آی‌دی یا یوزرنیم کانال (اختیاری). اگه ست بشه، خبرها علاوه بر چت شخصی،
+# به این کانال هم پست می‌شن. مثلاً: @AnimeNewsFa یا -1001234567890
+TELEGRAM_CHANNEL_ID = os.environ.get("TELEGRAM_CHANNEL_ID", "")
+
+SEND_TARGETS = [t for t in [TELEGRAM_CHAT_ID, TELEGRAM_CHANNEL_ID] if t]
+
 # آدرس ربات تعاملی (PythonAnywhere) برای ثبت تاریخچه‌ی خبرها.
 # اگه خالی بگذاری، این قابلیت غیرفعال می‌شه و فقط ارسال به تلگرام انجام می‌شه.
 WEBHOOK_LOG_URL = os.environ.get("WEBHOOK_LOG_URL", "")  # مثلاً https://sisisi.pythonanywhere.com/log_news
@@ -65,33 +71,49 @@ def translate_safe(text: str) -> str:
         return text
 
 
-def send_telegram_message(text: str):
+def send_telegram_message(chat_id: str, text: str):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": chat_id,
         "text": text,
         "parse_mode": "HTML",
         "disable_web_page_preview": False,
     }
     resp = requests.post(url, data=payload, timeout=20)
     if not resp.ok:
-        print(f"⚠️ خطا در ارسال به تلگرام: {resp.status_code} - {resp.text}")
+        print(f"⚠️ خطا در ارسال به تلگرام ({chat_id}): {resp.status_code} - {resp.text}")
     return resp.ok
 
 
-def send_telegram_photo(image_url: str, caption: str):
+def send_telegram_photo(chat_id: str, image_url: str, caption: str):
     """پیام رو به‌صورت عکس با کپشن می‌فرسته. کپشن تلگرام محدود به ۱۰۲۴ کاراکتره."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
     payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": chat_id,
         "photo": image_url,
         "caption": caption[:1024],
         "parse_mode": "HTML",
     }
     resp = requests.post(url, data=payload, timeout=20)
     if not resp.ok:
-        print(f"⚠️ خطا در ارسال عکس: {resp.status_code} - {resp.text}")
+        print(f"⚠️ خطا در ارسال عکس ({chat_id}): {resp.status_code} - {resp.text}")
     return resp.ok
+
+
+def send_to_all_targets(image_url: str, message: str) -> bool:
+    """پیام رو به همه‌ی مقصدها (چت شخصی + کانال) می‌فرسته.
+    اگه حداقل یکی موفق بود، True برمی‌گردونه (برای ثبت در sent_ids)."""
+    any_success = False
+    for chat_id in SEND_TARGETS:
+        ok = False
+        if image_url:
+            ok = send_telegram_photo(chat_id, image_url, message)
+            if not ok:
+                ok = send_telegram_message(chat_id, message)
+        else:
+            ok = send_telegram_message(chat_id, message)
+        any_success = any_success or ok
+    return any_success
 
 
 def log_to_history(title_en: str, summary_en: str, title_fa: str, summary_fa: str,
@@ -256,12 +278,9 @@ def main():
             )
 
             if image_url:
-                sent_ok = send_telegram_photo(image_url, message)
-                if not sent_ok:
-                    # اگه عکس شکست خورد (مثلاً لینک خراب بود)، به‌صورت متنی بفرست
-                    sent_ok = send_telegram_message(message)
+                sent_ok = send_to_all_targets(image_url, message)
             else:
-                sent_ok = send_telegram_message(message)
+                sent_ok = send_to_all_targets("", message)
 
             if sent_ok:
                 new_sent_ids.add(entry_id)
