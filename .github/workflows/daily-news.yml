@@ -25,12 +25,13 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run bot
-       env:
+        env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
           WEBHOOK_LOG_URL: ${{ secrets.WEBHOOK_LOG_URL }}
           LOG_SECRET: ${{ secrets.LOG_SECRET }}
+        run: python bot.py
 
       - name: Backup history.json from PythonAnywhere
         # اگه فایل history.json روی PythonAnywhere هر دلیلی پاک/خراب بشه،
@@ -50,6 +51,7 @@ jobs:
         run: |
           git config user.name "anime-news-bot"
           git config user.email "actions@github.com"
-          git add sent_ids.json backups/history.json
+          git add sent_ids.json
+          git add backups/history.json 2>/dev/null || true
           git diff --quiet && git diff --staged --quiet || git commit -m "update sent news log + history backup"
           git push
