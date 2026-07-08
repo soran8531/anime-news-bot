@@ -15,11 +15,17 @@ from deep_translator import GoogleTranslator
 
 # ---------- تنظیمات ----------
 
-# فیدهای خبری (می‌تونی اضافه/کم کنی)
+# فیدهای خبری انیمه (می‌تونی اضافه/کم کنی)
 FEEDS = {
     "Anime News Network": "https://www.animenewsnetwork.com/all/rss.xml",
     "Anime Corner": "https://animecorner.me/feed/",
     "Crunchyroll News": "https://www.crunchyroll.com/newsrss",
+}
+
+# فیدهای خبری فیلم و سریال (منابع کاملاً جدا از انیمه)
+MOVIE_FEEDS = {
+    "Variety": "https://variety.com/feed/",
+    "Deadline": "https://deadline.com/feed/",
 }
 
 STATE_FILE = Path(__file__).parent / "sent_ids.json"
@@ -28,11 +34,15 @@ MAX_ITEMS_PER_FEED = 8  # حداکثر تعداد خبر از هر منبع در
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-# آی‌دی یا یوزرنیم کانال (اختیاری). اگه ست بشه، خبرها علاوه بر چت شخصی،
-# به این کانال هم پست می‌شن. مثلاً: @AnimeNewsFa یا -1001234567890
+# آی‌دی/یوزرنیم کانال انیمه (اختیاری). مثلاً: @AnimeNewsFa یا -1001234567890
 TELEGRAM_CHANNEL_ID = os.environ.get("TELEGRAM_CHANNEL_ID", "")
 
-SEND_TARGETS = [t for t in [TELEGRAM_CHAT_ID, TELEGRAM_CHANNEL_ID] if t]
+# آی‌دی/یوزرنیم کانال جدا برای فیلم و سریال (اختیاری)
+TELEGRAM_MOVIE_CHANNEL_ID = os.environ.get("TELEGRAM_MOVIE_CHANNEL_ID", "")
+
+# چت شخصی همه‌چی رو می‌بینه؛ هر کانال فقط محتوای مخصوص خودش رو
+ANIME_TARGETS = [t for t in [TELEGRAM_CHAT_ID, TELEGRAM_CHANNEL_ID] if t]
+MOVIE_TARGETS = [t for t in [TELEGRAM_CHAT_ID, TELEGRAM_MOVIE_CHANNEL_ID] if t]
 
 # آدرس ربات تعاملی (PythonAnywhere) برای ثبت تاریخچه‌ی خبرها.
 # اگه خالی بگذاری، این قابلیت غیرفعال می‌شه و فقط ارسال به تلگرام انجام می‌شه.
@@ -100,11 +110,11 @@ def send_telegram_photo(chat_id: str, image_url: str, caption: str):
     return resp.ok
 
 
-def send_to_all_targets(image_url: str, message: str) -> bool:
-    """پیام رو به همه‌ی مقصدها (چت شخصی + کانال) می‌فرسته.
+def send_to_all_targets(targets: list, image_url: str, message: str) -> bool:
+    """پیام رو به لیست مقصدهای داده‌شده می‌فرسته.
     اگه حداقل یکی موفق بود، True برمی‌گردونه (برای ثبت در sent_ids)."""
     any_success = False
-    for chat_id in SEND_TARGETS:
+    for chat_id in targets:
         ok = False
         if image_url:
             ok = send_telegram_photo(chat_id, image_url, message)
@@ -232,17 +242,13 @@ def extract_image(entry) -> str:
 
 # ---------- منطق اصلی ----------
 
-def main():
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        raise SystemExit(
-            "❌ متغیرهای محیطی TELEGRAM_BOT_TOKEN و TELEGRAM_CHAT_ID تنظیم نشدن."
-        )
-
-    sent_ids = load_sent_ids()
-    new_sent_ids = set(sent_ids)
+def process_feed_group(feeds: dict, targets: list, sent_ids: set, new_sent_ids: set,
+                        fixed_category: str = None) -> int:
+    """یه گروه از فیدها (انیمه یا فیلم/سریال) رو پردازش می‌کنه و به targets مشخص‌شده می‌فرسته.
+    اگه fixed_category داده بشه (مثل 'movie_series')، تشخیص خودکار دسته انجام نمی‌شه."""
     total_sent = 0
 
-    for source_name, feed_url in FEEDS.items():
+    for source_name, feed_url in feeds.items():
         print(f"در حال بررسی منبع: {source_name}")
         try:
             feed = feedparser.parse(feed_url)
@@ -262,9 +268,15 @@ def main():
             summary_en = clean_html(entry.get("summary", ""))
             link = entry.get("link", "")
             image_url = extract_image(entry)
-            category = detect_category(title_en, summary_en)
-            category_emoji = {"anime": "🎬", "manga": "📖", "manhwa": "🇰🇷"}[category]
-            category_label = {"anime": "انیمه", "manga": "مانگا", "manhwa": "مانهوا"}[category]
+
+            if fixed_category:
+                category = fixed_category
+                category_emoji = "🎥"
+                category_label = "فیلم و سریال"
+            else:
+                category = detect_category(title_en, summary_en)
+                category_emoji = {"anime": "🎬", "manga": "📖", "manhwa": "🇰🇷"}[category]
+                category_label = {"anime": "انیمه", "manga": "مانگا", "manhwa": "مانهوا"}[category]
 
             title_fa = translate_safe(title_en)
             summary_fa = translate_safe(summary_en)
@@ -277,10 +289,7 @@ def main():
                 f"🔗 {link}"
             )
 
-            if image_url:
-                sent_ok = send_to_all_targets(image_url, message)
-            else:
-                sent_ok = send_to_all_targets("", message)
+            sent_ok = send_to_all_targets(targets, image_url, message)
 
             if sent_ok:
                 new_sent_ids.add(entry_id)
@@ -289,8 +298,24 @@ def main():
                 log_to_history(title_en, summary_en, title_fa, summary_fa, link, source_name, category, image_url)
                 time.sleep(1.5)  # برای رعایت محدودیت نرخ تلگرام و گوگل ترنسلیت
 
+    return total_sent
+
+
+def main():
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        raise SystemExit(
+            "❌ متغیرهای محیطی TELEGRAM_BOT_TOKEN و TELEGRAM_CHAT_ID تنظیم نشدن."
+        )
+
+    sent_ids = load_sent_ids()
+    new_sent_ids = set(sent_ids)
+
+    anime_sent = process_feed_group(FEEDS, ANIME_TARGETS, sent_ids, new_sent_ids)
+    movie_sent = process_feed_group(MOVIE_FEEDS, MOVIE_TARGETS, sent_ids, new_sent_ids,
+                                     fixed_category="movie_series")
+
     save_sent_ids(new_sent_ids)
-    print(f"\nتمام شد. تعداد خبرهای ارسال‌شده در این اجرا: {total_sent}")
+    print(f"\nتمام شد. انیمه/مانگا: {anime_sent} — فیلم/سریال: {movie_sent}")
 
 
 if __name__ == "__main__":
