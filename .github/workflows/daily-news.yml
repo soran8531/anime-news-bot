@@ -29,6 +29,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          TELEGRAM_MOVIE_CHANNEL_ID: ${{ secrets.TELEGRAM_MOVIE_CHANNEL_ID }}
           WEBHOOK_LOG_URL: ${{ secrets.WEBHOOK_LOG_URL }}
           LOG_SECRET: ${{ secrets.LOG_SECRET }}
         run: python bot.py
