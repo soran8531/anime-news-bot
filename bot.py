@@ -26,6 +26,7 @@ FEEDS = {
 MOVIE_FEEDS = {
     "Variety": "https://variety.com/feed/",
     "Deadline": "https://deadline.com/feed/",
+    "Soompi (کره‌ای)": "https://www.soompi.com/feed/",
 }
 
 STATE_FILE = Path(__file__).parent / "sent_ids.json"
