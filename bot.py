@@ -137,9 +137,13 @@ def detect_category(title: str, summary: str) -> str:
 
 
 def clean_html(raw: str) -> str:
-    """حذف تگ‌های ساده HTML که بعضی فیدها توی خلاصه‌شون دارن."""
+    """حذف تگ‌های HTML و رمزگشایی موجودیت‌هایی مثل &nbsp; یا &hellip;
+    که بعضی فیدها توی خلاصه‌شون می‌ذارن."""
     import re
+    import html
     text = re.sub("<[^<]+?>", "", raw or "")
+    text = html.unescape(text)
+    text = re.sub(r"\s+", " ", text)  # چند فاصله/خط پشت‌سرهم رو یکی کن
     return text.strip()
 
 
